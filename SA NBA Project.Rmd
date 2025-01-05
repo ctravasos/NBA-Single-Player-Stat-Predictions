@@ -1,0 +1,2109 @@
+---
+title: "SA Win Prediction Project"
+author: "Collin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+packages
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tidyverse)
+library(caTools)
+library(caret)
+library(rpart)
+library(httr) 
+library(rvest) 
+library(jsonlite) 
+library(scales)
+library(xgboost)
+library(Metrics)
+library(randomForest)
+library(DMwR)
+library(dplyr)
+library(caTools)
+library(caret)
+```
+
+load in team data
+
+```{r}
+
+T16 <- read_excel("C:/Users/cstra/MOD2/2015-2016_NBA_Box_Score_Team-Stats.xlsx")
+T17 <- read_excel("C:/Users/cstra/MOD2/2016-2017_NBA_Box_Score_Team-Stats.xlsx")
+T18 <- read_excel("C:/Users/cstra/MOD2/2017-2018_NBA_Box_Score_Team-Stats.xlsx")
+T19 <- read_excel("C:/Users/cstra/MOD2/2018-2019_NBA_Box_Score_Team-Stats.xlsx")
+T20 <- read_excel("C:/Users/cstra/MOD2/2019-2020_NBA_Box_Score_Team-Stats.xlsx")
+T21 <- read_excel("C:/Users/cstra/MOD2/2020-2021_NBA_Box_Score_Team-Stats.xlsx")
+T22 <- read_excel("C:/Users/cstra/MOD2/2021-2022_NBA_Box_Score_Team-Stats.xlsx")
+T23 <- read_excel("C:/Users/cstra/MOD2/2022-2023_NBA_Box_Score_Team-Stats.xlsx")
+T24 <- read_excel("C:/Users/cstra/MOD2/2023-2024_NBA_Box_Score_Team-Stats.xlsx")
+
+```
+
+load in player data
+```{r}
+P16 <- read_excel("C:/Users/cstra/MOD2/2015-2016-NBA-Player-BoxScore-Dataset.xlsx")
+P17 <- read_excel("C:/Users/cstra/MOD2/2016-2017-NBA-Player-BoxScore-Dataset.xlsx")
+P18 <- read_excel("C:/Users/cstra/MOD2/2017-2018-NBA-Player-BoxScore-Dataset.xlsx")
+P19 <- read_excel("C:/Users/cstra/MOD2/2018-2019_NBA_Player-BoxScore-Dataset.xlsx")
+P20 <- read_excel("C:/Users/cstra/MOD2/2019-2020_NBA_Player-BoxScore-Dataset.xlsx")
+P21 <- read_excel("C:/Users/cstra/MOD2/2020-2021_NBA_Player-BoxScore-Dataset.xlsx")
+P22 <- read_excel("C:/Users/cstra/MOD2/2021-2022_NBA_Player-BoxScore-Dataset.xlsx")
+P23 <- read_excel("C:/Users/cstra/MOD2/2022-2023_NBA_Player-BoxScore-Dataset.xlsx")
+P24 <- read_excel("C:/Users/cstra/MOD2/2023-2024-NBA-Player-BoxScore-Dataset.xlsx")
+
+```
+
+rename
+```{r}
+#T16 <- T16 %>%
+  #rename(DATASET = `BIGDATABALL\r\nDATASET`)
+#T17 <- T17 %>%
+  #rename(DATASET = `BIGDATABALL\r\nDATASET`)
+#T18 <- T18 %>%
+  #rename(DATASET = `BIGDATABALL\r\nDATASET`)
+#T19 <- T19 %>%
+  #rename(DATASET = `BIGDATABALL\r\nDATASET`)
+T20 <- T20 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+T21 <- T21 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+T22 <- T22 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+T23 <- T23 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+T24 <- T24 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+
+
+P16 <- P16 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+P17 <- P17 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+P18 <- P18 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+#P19 <- P19 %>%
+  #rename(DATASET = `BIGDATABALL\r\nDATASET`)
+P20 <- P20 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+P21 <- P21 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+P22 <- P22 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+P23 <- P23 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+P24 <- P24 %>%
+  rename(DATASET = `BIGDATABALL\r\nDATASET`)
+
+```
+
+combine datasets
+```{r}
+TeamData <- bind_rows(T16, T17, T18, T19, T20, T21, T22, T23, T24)
+
+PlayerData <- bind_rows(P16, P17, P18, P19, P20, P21, P22, P23, P24)
+```
+
+create a win loss column
+```{r}
+TeamData <- TeamData %>% select(1:15)
+
+TeamData <- TeamData %>%
+  group_by(`GAME-ID`) %>%
+  mutate(RESULT = ifelse(F == max(F), "Win", "Loss")) %>%
+  ungroup()
+
+```
+
+combine team and game id
+```{r}
+TeamData <- TeamData %>% 
+  mutate(
+    TeamGameID = paste(`GAME-ID`, TEAM, sep = " ")
+  )
+
+PlayerData <- PlayerData %>% 
+  mutate(
+    TeamGameID = paste(`GAME-ID`, `OWN \r\nTEAM`, sep = " ")
+  )
+```
+
+join data
+```{r}
+Data <- merge(TeamData, PlayerData, by = "TeamGameID", all = FALSE)
+```
+
+clean
+```{r}
+
+Data <- Data %>%
+  rename(
+    StarterYN = `STARTER\r\n(Y/N)`,
+    PlayerFullName = `PLAYER \r\nFULL NAME`,
+    OwnTeam = `OWN \r\nTEAM`,
+    OpponentTeam = `OPPONENT \r\nTEAM`,
+    UsageRate = `USAGE \r\nRATE (%)`,
+    DaysRest = `DAYS\r\nREST`
+  )
+
+
+Data <- Data %>% 
+  mutate(
+    GameID = coalesce(`GAME-ID.x`, `GAME-ID.y`),
+    Date = coalesce(`DATE.x`, `DATE.y`),
+    Dataset = coalesce(DATASET.x, DATASET.y)
+  ) %>%
+  select(-c(`GAME-ID.x`, `GAME-ID.y`, `DATE.x`, `DATE.y`, DATASET.x, DATASET.y))
+
+Data <- Data %>% 
+  select(-c(`VENUE\r\n(R/H/N)`, `VENUE\r\n(R/H)`))
+
+Data <- Data %>%
+  rename(
+    Player = PlayerFullName,
+  )
+
+Data <- Data %>% 
+  mutate(POSITION = substr(POSITION, 1, 1)
+  )
+
+
+Data$VENUE[is.na(Data$VENUE)] <- "N"
+
+```
+
+remove blowouts
+```{r}
+Data <- Data %>%
+  group_by(GameID) %>%
+  mutate(ScoreDifference = abs(F - lag(F))) %>%
+  filter(is.na(ScoreDifference) | ScoreDifference <= 25) %>%
+  ungroup() %>%
+  select(-ScoreDifference)  
+
+```
+
+Only Starters 
+```{r}
+Data <- Data %>% 
+  filter(StarterYN == "Y" & MIN > 12)
+```
+ 
+Only All Stars - separate data set - maybe use 
+```{r}
+all_stars <- c(
+  "LeBron James", "Kareem Abdul-Jabbar", "Kobe Bryant", "Julius Erving", "Tim Duncan",
+  "Kevin Garnett", "Shaquille O'Neal", "Kevin Durant", "Michael Jordan", "Karl Malone",
+  "Dirk Nowitzki", "Jerry West", "Wilt Chamberlain", "Bob Cousy", "John Havlicek",
+  "Moses Malone", "Dwyane Wade", "Rick Barry", "Larry Bird", "George Gervin",
+  "Elvin Hayes", "Magic Johnson", "Hakeem Olajuwon", "Chris Paul", "Oscar Robertson",
+  "Bill Russell", "Dolph Schayes", "Isiah Thomas", "Charles Barkley", "Elgin Baylor",
+  "Chris Bosh", "Patrick Ewing", "Artis Gilmore", "Allen Iverson", "Bob Pettit",
+  "Ray Allen", "Carmelo Anthony", "Paul Arizin", "Stephen Curry", "Clyde Drexler",
+  "Hal Greer", "James Harden", "Jason Kidd", "Paul Pierce", "David Robinson",
+  "John Stockton", "Anthony Davis", "Paul George", "Robert Parish", "Gary Payton",
+  "Russell Westbrook", "Lenny Wilkens", "Dominique Wilkins", "Giannis Antetokounmpo", 
+  "Vince Carter", "Dave Cowens", "Dave DeBusschere", "Alex English", "Larry Foust", 
+  "Dwight Howard",
+  "Kyrie Irving", "Bob Lanier", "Damian Lillard", "Yao Ming", "Dikembe Mutombo",
+  "Steve Nash", "Bill Sharman", "LaMarcus Aldridge", "Dave Bing", "Louie Dampier",
+  "Mel Daniels", "Joel Embiid", "Walt Frazier", "Harry Gallatin", "Grant Hill",
+  "Dan Issel", "Joe Johnson", "Jerry Lucas", "Ed Macauley", "Slater Martin",
+  "Tracy McGrady", "Dick McGuire", "Kevin McHale", "Alonzo Mourning", "Scottie Pippen",
+  "Willis Reed", "Jack Sikma", "Nate Thurmond", "Chet Walker", "Jo Jo White",
+  "James Worthy", "Tiny Archibald", "Jimmy Butler", "Larry Costello", "Adrian Dantley",
+  "Walter Davis", "DeMar DeRozan", "Joe Dumars", "Pau Gasol", "Blake Griffin",
+  "Richie Guerin", "Cliff Hagan", "Connie Hawkins", "Tom Heinsohn", "Bailey Howell",
+  "Lou Hudson", "Neil Johnston", "Nikola Jokić", "Jimmy Jones", "Shawn Kemp",
+  "Kawhi Leonard", "Kyle Lowry", "George McGinnis", "Vern Mikkelsen", "Jermaine O'Neal",
+  "Tony Parker", "Mitch Richmond", "Amar'e Stoudemire", "Jack Twyman", "George Yardley",
+  "Zelmo Beaty", "Chauncey Billups", "Carl Braun", "Mack Calvin", "Billy Cunningham",
+  "Brad Daugherty", "Luka Dončić", "Wayne Embry", "Donnie Freeman", "Tom Gola",
+  "Gail Goodrich", "Tim Hardaway", "Spencer Haywood", "Al Horford", "Dennis Johnson",
+  "Gus Johnson", "Marques Johnson", "Bobby Jones", "Sam Jones", "Larry Kenon",
+  "Rudy LaRusso", "Kevin Love", "Maurice Lucas", "Pete Maravich", "Bob McAdoo",
+  "Reggie Miller", "Donovan Mitchell", "Sidney Moncrief", "Chris Mullin", "Don Ohl",
+  "Andy Phillip", "Charlie Scott", "Gene Shue", "Ralph Simpson", "Jayson Tatum",
+  "David Thompson", "Klay Thompson", "Rudy Tomjanovich", "Wes Unseld", "John Wall",
+  "Bobby Wanzer", "Chris Webber", "Paul Westphal", "Vin Baker", "Walt Bellamy",
+  "Otis Birdsong", "Rolando Blackman", "Devin Booker", "Ron Boone", "Roger Brown",
+  "Joe Caldwell", "Tom Chambers", "Maurice Cheeks", "Doug Collins", "DeMarcus Cousins",
+  "Bob Dandridge", "Bob Davies", "Dick Garmaker", "Draymond Green", "Johnny Green",
+  "Anfernee Hardaway", "Mel Hutchins", "Warren Jabali", "Larry Jones", "Bernard King",
+  "Bill Laimbeer", "Clyde Lovellette", "Shawn Marion", "George Mikan", "Paul Millsap",
+  "Earl Monroe", "Willie Naulls", "Bob Netolicky", "Billy Paultz", "Jim Pollard",
+  "Micheal Ray Richardson", "Arnie Risen", "Red Robbins", "Alvin Robertson", "Guy Rodgers",
+  "Rajon Rondo", "Ralph Sampson", "Latrell Sprewell", "Karl-Anthony Towns", "Kemba Walker",
+  "Ben Wallace", "Rasheed Wallace", "Sidney Wicks", 
+  "Bam Adebayo", "Mark Aguirre", "Gilbert Arenas", "Bradley Beal", "John Beasley",
+  "Bill Bridges", "Jaylen Brown", "Larry Brown", "Darel Carrier", "Phil Chenier",
+  "Glen Combs", "Terry Dischinger", "Steve Francis", "Marc Gasol", "Rudy Gobert",
+  "Richard Hamilton", "Kevin Johnson", "Stew Johnson", "Eddie Jones", "Steve Jones",
+  "Bob Kauffman", "Red Kerr", "Billy Knight", "Freddie Lewis", "Bob Love",
+  "Dan Majerle", "Bill Melchionni", "Khris Middleton", "Doug Moe", "Jeff Mullins",
+  "Larry Nance", "Julius Randle", "Glen Rice", "Derrick Rose", "Dan Roundfield",
+  "Brandon Roy", "Domantas Sabonis", "Detlef Schrempf", "Paul Seymour", "Ben Simmons",
+  "Peja Stojaković", "Maurice Stokes", "George Thompson", "Dick Van Arsdale", 
+  "Tom Van   Arsdale",
+  "Norm Van Lier", "Antoine Walker", "Jamaal Wilkes", "Buck Williams", "Deron Williams",
+  "Willie Wise", "Trae Young", "Marvin Barnes", "Leo Barnhorst", "Byron Beck",
+  "Art Becker", "Carlos Boozer", "Elton Brand", "Terrell Brandon", "Frankie Brian",
+  "John Brisker", "Don Buse", "Caron Butler", "Archie Clark", "Terry Cummings",
+  "Baron Davis", "Warren Davis", "Luol Deng", "John Drew", "Andre Drummond",
+  "Kevin Duckworth", "Walter Dukes", "Dike Eddleman", "Anthony Edwards", "Sean Elliott",
+  "Michael Finley", "Joe Fulks", "Jack George", "Shai Gilgeous-Alexander", "Manu Ginóbili",
+  "Tyrese Haliburton", "Roy Hibbert", "Jrue Holiday", "Allan Houston", "Hot Rod Hundley",
+  "Les Hunter", "Zydrunas Ilgauskas", "Antawn Jamison", "Eddie Johnson", "John Johnson",
+  "Larry Johnson", "Rich Jones", "Don Kojis", "Wendell Ladner", "Zach LaVine",
+  "David Lee", "Fat Lever", "Mike Lewis", "Rashard Lewis", "Jeff Malone",
+  "Danny Manning", "Stephon Marbury", "Jack Marin", "Brad Miller", "Ja Morant",
+  "Swen Nater", "Norm Nixon", "Joakim Noah", "Victor Oladipo", "Jim Paxson",
+  "Geoff Petrie", "Terry Porter", "Cincy Powell", "Zach Randolph", "Glenn Robinson",
+  "Truck Robinson", "Red Rocha", "Dennis Rodman", "Jeff Ruland", "Fred Scolari",
+  "Kenny Sears", "Frank Selvy", "Pascal Siakam", "James Silas", "Paul Silas",
+  "Jerry Sloan", "Phil Smith", "Randy Smith", "Jerry Stackhouse", "Levern Tart",
+  "Brian Taylor", "Reggie Theus", "Isaiah Thomas", "Andrew Toney", "Kelly Tripucka",
+  "Kiki Vandeweghe", "Bob Verga", "Nikola Vučević", "Nikola Vucevic", "Jimmy Walker", 
+  "Bill Walton",
+  "Scott Wedman", "David West", "Charlie Williams", "Chuck Williams", "Gus Williams",
+  "Zion Williamson", "Brian Winters", 
+  "Shareef Abdur-Rahim", "Alvan Adams", "Michael Adams", "Danny Ainge", "Jarrett Allen",
+  "Kenny Anderson", "B.J. Armstrong", "LaMelo Ball", "Paolo Banchero", "Don Barksdale",
+  "Scottie Barnes", "Dick Barnett", "Dana Barros", "Butch Beard", "Ralph Beard",
+  "Mookie Blaylock", "John Block", "Bob Boozer", "Vince Boryla", "Bill Bradley",
+  "Fred Brown", "Roger Brown", "Jalen Brunson", "Larry Bunce", "Andrew Bynum",
+  "Austin Carr", "Joe Barry Carroll", "George Carter", "Bill Cartwright", "Sam Cassell",
+  "Cedric Ceballos", "Tyson Chandler", "Len Chappell", "Nat Clifton", "Derrick Coleman",
+  "Jack Coleman", "Mike Conley", "Antonio Davis", "Dale Davis", "Vlade Divac",
+  "James Donaldson", "Goran Dragić", "Jim Eakins", "Mark Eaton", "Dale Ellis",
+  "Ray Felix", "Sleepy Floyd", "Jimmy Foster", "De'Aaron Fox", "World B. Free",
+  "Bill Gabor", "Darius Garland", "Chris Gatling", "Gus Gerard", "Gerald Govan",
+  "Danny Granger", "Horace Grant", "A.C. Green", "Mike Green", "Rickey Green",
+  "Alex Groza", "Tom Gugliotta", "Devin Harris", "Bob Harrison", "Hersey Hawkins",
+  "Gordon Hayward", "Walt Hazzard", "Art Heyman", "Wayne Hightower", "Tyrone Hill",
+  "Lionel Hollins", "Jeff Hornacek", "Josh Howard", "Juwan Howard", "Andre Iguodala",
+  "Darrall Imhoff", "Brandon Ingram", "Jaren Jackson Jr.", "Luke Jackson", "Mark Jackson",
+  "Merv Jackson", "Tony Jackson", "Neil Johnson", "Steve Johnson", "Caldwell Jones",
+  "Wil Jones", "DeAndre Jordan", "Chris Kaman", "Julius Keye", "Jim King",
+  "Andrei Kirilenko", "Kyle Korver", "Sam Lacey", "Christian Laettner", "Clyde Lee",
+  "Reggie Lewis", "Goose Ligon", "Brook Lopez", "Jamaal Magloire", "Randy Mahaffey",
+  "Lauri Markkanen", "Kenyon Martin", "Jamal Mashburn", "Anthony Mason", "Tyrese Maxey",
+  "Ted McClain", "Xavier McDaniel", "Jim McDaniels", "Antonio McDyess", "Jon McGlocklin",
+  "Dewitt Menyard", "Tom Meschery", "Eddie Miles", "Mike Mitchell", "Steve Mix",
+  "Jack Molinas", "Gene Moore", "Calvin Murphy", "Dejounte Murray", "Calvin Natt",
+  "Jameer Nelson", "Chuck Noble", "Charles Oakley", "Mehmet Okur", "Ricky Pierce",
+  "Kristaps Porziņģis", "Jim Price", "Theo Ratliff", "Michael Redd", "Richie Regan",
+  "Doc Rivers", "Clifford Robinson", "Flynn Robinson", "Curtis Rowe", "Bob Rule",
+  "Campy Russell", "Cazzie Russell", "D'Angelo Russell", "Woody Sauldsberry", "Fred Schaus",
+  "Lee Shaffer", "Lonnie Shelton", "Walt Simon", "Adrian Smith", "Steve Smith",
+  "Rik Smits", "Willie Somerset", "John Starks", "Don Sunderlage", "Wally Szczerbiak",
+  "Jeff Teague", "Claude Terry", "Skip Thoren", "Otis Thorpe", "Monte Towe",
+  "Dave Twardzik", "Nick Van Exel", "Fred VanVleet", "Chico Vaughn", "Gerald Wallace",
+  "Paul Walther", "Ben Warley", "Kermit Washington", "Trooper Washington", "Andrew Wiggins",
+  "Jayson Williams", "Mo Williams", "Kevin Willis", "Metta World Peace", "Max Zaslofsky"
+)
+
+
+DataAS <- Data %>%
+  filter(Player %in% all_stars)
+```
+ 
+model time
+
+rf - all players
+```{r}
+
+
+
+# Split the data into training and test sets
+set.seed(123) # For reproducibility
+train_index_rf <- createDataPartition(Data$RESULT, p = 0.8, list = FALSE)
+train_data_rf <- Data[train_index_rf, ]
+test_data_rf <- Data[-train_index_rf, ]
+
+# Define the control method
+control <- trainControl(method = "cv", number = 5, search = "grid")
+
+# Define the grid of hyperparameters to search
+grid <- expand.grid(mtry = 1)
+
+# Train the random forest model
+rf_grid <- train(RESULT ~ PTS + TOT + A, data = train_data_rf,
+                 method = "rf",
+                 trControl = control,
+                 tuneGrid = grid,
+                 ntree = 5)  # Added ntree parameter here
+
+# Make predictions on the test data
+pred <- predict(rf_grid, test_data_rf)
+
+# Evaluate the model using a confusion matrix
+conf_matrix <- confusionMatrix(pred, as.factor(test_data_rf$RESULT))
+print(conf_matrix)
+
+```
+
+
+
+
+log reg - Lebron 
+```{r}
+
+
+# Filter the dataset for the specific player (e.g., LeBron James)
+player_name <- "LeBron James"
+player_data <- Data %>%
+  filter(Player == player_name)
+
+# Select relevant features and ensure the RESULT column is a factor
+player_data <- player_data %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT) %>%
+  mutate(RESULT = as.factor(RESULT))
+
+# Split the data into training and test sets
+set.seed(123) # For reproducibility
+train_index <- createDataPartition(player_data$RESULT, p = 0.8, list = FALSE)
+train_data <- player_data[train_index, ]
+test_data <- player_data[-train_index, ]
+
+# Train a logistic regression model
+log_model <- train(RESULT ~ ., data = train_data, method = "glm", family = "binomial")
+
+# Make predictions on the test data
+pred <- predict(log_model, test_data)
+
+# Evaluate the model using a confusion matrix
+conf_matrix <- confusionMatrix(pred, test_data$RESULT)
+print(conf_matrix)
+
+```
+
+gradient boosting - Lebron
+```{r}
+# Load necessary packages
+library(gbm)
+library(caret)
+library(dplyr)
+
+# Filter the dataset for the specific player (e.g., LeBron James)
+player_name <- "LeBron James"
+player_data <- Data %>%
+  filter(Player == player_name)
+
+# Select relevant features and ensure the RESULT column is a factor
+player_data <- player_data %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT) %>%
+  mutate(RESULT = as.factor(RESULT))
+
+# Split the data into training and test sets
+set.seed(123) # For reproducibility
+train_index <- createDataPartition(player_data$RESULT, p = 0.8, list = FALSE)
+train_data <- player_data[train_index, ]
+test_data <- player_data[-train_index, ]
+
+# Train a GBM model
+gbm_model <- train(RESULT ~ ., data = train_data, method = "gbm",
+                   trControl = trainControl(method = "cv", number = 5),
+                   tuneLength = 5)
+
+# Make predictions on the test data
+gbm_pred <- predict(gbm_model, test_data)
+
+# Evaluate the model using a confusion matrix
+gbm_conf_matrix <- confusionMatrix(gbm_pred, test_data$RESULT)
+print(gbm_conf_matrix)
+
+```
+
+KNN - Lebron
+```{r}
+# Load necessary packages
+library(class)
+library(caret)
+library(dplyr)
+
+# Filter the dataset for the specific player (e.g., LeBron James)
+player_name <- "LeBron James"
+player_data <- Data %>%
+  filter(Player == player_name)
+
+# Select relevant features and ensure the RESULT column is a factor
+player_data <- player_data %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT) %>%
+  mutate(RESULT = as.factor(RESULT))
+
+# Split the data into training and test sets
+set.seed(123) # For reproducibility
+train_index <- createDataPartition(player_data$RESULT, p = 0.8, list = FALSE)
+train_data <- player_data[train_index, ]
+test_data <- player_data[-train_index, ]
+
+# Scale the features
+train_features <- train_data %>%
+  select(-RESULT) %>%
+  scale()
+train_labels <- train_data$RESULT
+
+test_features <- test_data %>%
+  select(-RESULT) %>%
+  scale()
+test_labels <- test_data$RESULT
+
+# Train and predict using KNN
+k <- 5  # You can tune this value
+knn_pred <- knn(train = train_features, test = test_features, cl = train_labels, k = k)
+
+# Evaluate the model using a confusion matrix
+knn_conf_matrix <- confusionMatrix(knn_pred, test_labels)
+print(knn_conf_matrix)
+
+```
+
+
+
+
+
+Here's the complete code to estimate the team's expected win percentage for their next game based on a player's average stats
+
+
+Lebron Rf
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games LeBron Played
+player_name <- "LeBron James"
+lebron_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(lebron_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+lebron_data$RESULT <- ifelse(lebron_data$RESULT == "Win", 1, 0)
+lebron_data$RESULT <- factor(lebron_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+lebron_data <- lebron_data %>% na.omit()
+
+# Step 4: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(lebron_data$RESULT, p = 0.8, list = FALSE)
+train_data <- lebron_data[train_index, ]
+test_data <- lebron_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Step 5: Predict Team's Expected Win Percentage for the Next Game
+# Calculate player's average stats for use in next game prediction
+player_avg_stats <- lebron_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+# Transpose the player's average stats and ensure it is a single row with multiple columns
+next_game_data <- as.data.frame(t(player_avg_stats))  # Transpose data and convert to data frame
+next_game_data <- t(next_game_data)  # Transpose again to get single row format
+
+# Ensure column names are properly set for prediction
+colnames(next_game_data) <- colnames(train_data)[-16]  # Align the column names for prediction
+
+# Predict win probability for the next game
+win_prob <- predict(rf_model, next_game_data, type = "prob")[,2]
+print(win_prob)
+
+```
+
+steph avg
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Stephen Curry Played
+player_name <- "Stephen Curry"
+curry_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(curry_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+curry_data$RESULT <- ifelse(curry_data$RESULT == "Win", 1, 0)
+curry_data$RESULT <- factor(curry_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+curry_data <- curry_data %>% na.omit()
+
+# Step 4: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(curry_data$RESULT, p = 0.8, list = FALSE)
+train_data <- curry_data[train_index, ]
+test_data <- curry_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Step 5: Predict Team's Expected Win Percentage for the Next Game
+# Calculate player's average stats for use in next game prediction
+player_avg_stats <- curry_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+# Transpose the player's average stats and ensure it is a single row with multiple columns
+next_game_data <- as.data.frame(t(player_avg_stats))  # Transpose data and convert to data frame
+next_game_data <- t(next_game_data)  # Transpose again to get single row format
+
+# Ensure column names are properly set for prediction
+colnames(next_game_data) <- colnames(train_data)[-16]  # Align the column names for prediction
+
+# Predict win probability for the next game
+win_prob <- predict(rf_model, next_game_data, type = "prob")[,2]
+print(win_prob)
+
+```
+
+steph high
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Stephen Curry Played
+player_name <- "Stephen Curry"
+curry_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(curry_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+curry_data$RESULT <- ifelse(curry_data$RESULT == "Win", 1, 0)
+curry_data$RESULT <- factor(curry_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+curry_data <- curry_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+curry_stats_mean <- curry_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+curry_stats_sd <- curry_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one standard deviation above the mean
+curry_stats_high <- curry_stats_mean + curry_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(curry_data$RESULT, p = 0.8, list = FALSE)
+train_data <- curry_data[train_index, ]
+test_data <- curry_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+# Transpose the player's high stats to ensure it is a single row with multiple columns
+next_game_data <- as.data.frame(t(curry_stats_high))  # Transpose data and convert to data frame
+next_game_data <- as.data.frame(t(next_game_data))  # Ensure it is a single row format
+
+# Ensure column names are properly set for prediction
+colnames(next_game_data) <- colnames(train_data)[-16]  # Align the column names for prediction
+
+# Predict win probability for the next game
+win_prob <- predict(rf_model, next_game_data, type = "prob")[,2]
+print(win_prob)
+
+```
+
+steph low
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Stephen Curry Played
+player_name <- "Stephen Curry"
+curry_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(curry_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+curry_data$RESULT <- ifelse(curry_data$RESULT == "Win", 1, 0)
+curry_data$RESULT <- factor(curry_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+curry_data <- curry_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+curry_stats_mean <- curry_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+curry_stats_sd <- curry_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one standard deviation below the mean
+curry_stats_low <- curry_stats_mean - curry_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(curry_data$RESULT, p = 0.8, list = FALSE)
+train_data <- curry_data[train_index, ]
+test_data <- curry_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+# Transpose the player's low stats to ensure it is a single row with multiple columns
+next_game_data <- as.data.frame(t(curry_stats_low))  # Transpose data and convert to data frame
+next_game_data <- as.data.frame(t(next_game_data))  # Ensure it is a single row format
+
+# Ensure column names are properly set for prediction
+colnames(next_game_data) <- colnames(train_data)[-16]  # Align the column names for prediction
+
+# Predict win probability for the next game
+win_prob <- predict(rf_model, next_game_data, type = "prob")[,2]
+print(win_prob)
+
+```
+
+
+
+All 5
+Lebron 
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games LeBron James Played
+player_name <- "LeBron James"
+lebron_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(lebron_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+lebron_data$RESULT <- ifelse(lebron_data$RESULT == "Win", 1, 0)
+lebron_data$RESULT <- factor(lebron_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+lebron_data <- lebron_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+lebron_stats_mean <- lebron_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+lebron_stats_sd <- lebron_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+lebron_stats_high <- lebron_stats_mean + lebron_stats_sd
+lebron_stats_very_high <- lebron_stats_mean + 2 * lebron_stats_sd
+lebron_stats_low <- lebron_stats_mean - lebron_stats_sd
+lebron_stats_very_low <- lebron_stats_mean - 2 * lebron_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(lebron_data$RESULT, p = 0.8, list = FALSE)
+train_data <- lebron_data[train_index, ]
+test_data <- lebron_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(lebron_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(lebron_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(lebron_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(lebron_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(lebron_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when LeBron James has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Steph
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Stephen Curry Played
+player_name <- "Stephen Curry"
+curry_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(curry_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+curry_data$RESULT <- ifelse(curry_data$RESULT == "Win", 1, 0)
+curry_data$RESULT <- factor(curry_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+curry_data <- curry_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+curry_stats_mean <- curry_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+curry_stats_sd <- curry_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+curry_stats_high <- curry_stats_mean + curry_stats_sd
+curry_stats_very_high <- curry_stats_mean + 2 * curry_stats_sd
+curry_stats_low <- curry_stats_mean - curry_stats_sd
+curry_stats_very_low <- curry_stats_mean - 2 * curry_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(curry_data$RESULT, p = 0.8, list = FALSE)
+train_data <- curry_data[train_index, ]
+test_data <- curry_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(curry_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(curry_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(curry_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(curry_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(curry_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Stephen Curry has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Klay
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Klay Thompson Played
+player_name <- "Klay Thompson"
+klay_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(klay_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+klay_data$RESULT <- ifelse(klay_data$RESULT == "Win", 1, 0)
+klay_data$RESULT <- factor(klay_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+klay_data <- klay_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+klay_stats_mean <- klay_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+klay_stats_sd <- klay_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+klay_stats_high <- klay_stats_mean + klay_stats_sd
+klay_stats_very_high <- klay_stats_mean + 2 * klay_stats_sd
+klay_stats_low <- klay_stats_mean - klay_stats_sd
+klay_stats_very_low <- klay_stats_mean - 2 * klay_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(klay_data$RESULT, p = 0.8, list = FALSE)
+train_data <- klay_data[train_index, ]
+test_data <- klay_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(klay_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(klay_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(klay_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(klay_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(klay_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Klay Thompson has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Draymond
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Draymond Green Played
+player_name <- "Draymond Green"
+green_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(green_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+green_data$RESULT <- ifelse(green_data$RESULT == "Win", 1, 0)
+green_data$RESULT <- factor(green_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+green_data <- green_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+green_stats_mean <- green_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+green_stats_sd <- green_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+green_stats_high <- green_stats_mean + green_stats_sd
+green_stats_very_high <- green_stats_mean + 2 * green_stats_sd
+green_stats_low <- green_stats_mean - green_stats_sd
+green_stats_very_low <- green_stats_mean - 2 * green_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(green_data$RESULT, p = 0.8, list = FALSE)
+train_data <- green_data[train_index, ]
+test_data <- green_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(green_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(green_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(green_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(green_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(green_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Draymond Green has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Players requested by the class
+Josh Hart
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Josh Hart Played
+player_name <- "Josh Hart"
+hart_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(hart_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+hart_data$RESULT <- ifelse(hart_data$RESULT == "Win", 1, 0)
+hart_data$RESULT <- factor(hart_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+hart_data <- hart_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+hart_stats_mean <- hart_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+hart_stats_sd <- hart_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+hart_stats_high <- hart_stats_mean + hart_stats_sd
+hart_stats_very_high <- hart_stats_mean + 2 * hart_stats_sd
+hart_stats_low <- hart_stats_mean - hart_stats_sd
+hart_stats_very_low <- hart_stats_mean - 2 * hart_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(hart_data$RESULT, p = 0.8, list = FALSE)
+train_data <- hart_data[train_index, ]
+test_data <- hart_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(hart_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(hart_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(hart_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(hart_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(hart_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Josh Hart has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Tj Mcconnel
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games T.J. McConnell Played
+player_name <- "T.J. McConnell"
+mcconnell_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(mcconnell_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+mcconnell_data$RESULT <- ifelse(mcconnell_data$RESULT == "Win", 1, 0)
+mcconnell_data$RESULT <- factor(mcconnell_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+mcconnell_data <- mcconnell_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+mcconnell_stats_mean <- mcconnell_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+mcconnell_stats_sd <- mcconnell_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+mcconnell_stats_high <- mcconnell_stats_mean + mcconnell_stats_sd
+mcconnell_stats_very_high <- mcconnell_stats_mean + 2 * mcconnell_stats_sd
+mcconnell_stats_low <- mcconnell_stats_mean - mcconnell_stats_sd
+mcconnell_stats_very_low <- mcconnell_stats_mean - 2 * mcconnell_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(mcconnell_data$RESULT, p = 0.8, list = FALSE)
+train_data <- mcconnell_data[train_index, ]
+test_data <- mcconnell_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(mcconnell_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(mcconnell_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(mcconnell_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(mcconnell_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(mcconnell_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when T.J. McConnell has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Grayson Allen
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Grayson Allen Played
+player_name <- "Grayson Allen"
+allen_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(allen_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+allen_data$RESULT <- ifelse(allen_data$RESULT == "Win", 1, 0)
+allen_data$RESULT <- factor(allen_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+allen_data <- allen_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+allen_stats_mean <- allen_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+allen_stats_sd <- allen_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+allen_stats_high <- allen_stats_mean + allen_stats_sd
+allen_stats_very_high <- allen_stats_mean + 2 * allen_stats_sd
+allen_stats_low <- allen_stats_mean - allen_stats_sd
+allen_stats_very_low <- allen_stats_mean - 2 * allen_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(allen_data$RESULT, p = 0.8, list = FALSE)
+train_data <- allen_data[train_index, ]
+test_data <- allen_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(allen_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(allen_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(allen_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(allen_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(allen_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Grayson Allen has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Wemby
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Victor Wembanyama Played
+player_name <- "Victor Wembanyama"
+wemby_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(wemby_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+wemby_data$RESULT <- ifelse(wemby_data$RESULT == "Win", 1, 0)
+wemby_data$RESULT <- factor(wemby_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+wemby_data <- wemby_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+wemby_stats_mean <- wemby_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+wemby_stats_sd <- wemby_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+wemby_stats_high <- wemby_stats_mean + wemby_stats_sd
+wemby_stats_very_high <- wemby_stats_mean + 2 * wemby_stats_sd
+wemby_stats_low <- wemby_stats_mean - wemby_stats_sd
+wemby_stats_very_low <- wemby_stats_mean - 2 * wemby_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(wemby_data$RESULT, p = 0.8, list = FALSE)
+train_data <- wemby_data[train_index, ]
+test_data <- wemby_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(wemby_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(wemby_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(wemby_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(wemby_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(wemby_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Victor Wembanyama has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Luka
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Luka Dončić Played
+player_name <- "Luka Doncic"
+doncic_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(doncic_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+doncic_data$RESULT <- ifelse(doncic_data$RESULT == "Win", 1, 0)
+doncic_data$RESULT <- factor(doncic_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+doncic_data <- doncic_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+doncic_stats_mean <- doncic_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+doncic_stats_sd <- doncic_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+doncic_stats_high <- doncic_stats_mean + doncic_stats_sd
+doncic_stats_very_high <- doncic_stats_mean + 2 * doncic_stats_sd
+doncic_stats_low <- doncic_stats_mean - doncic_stats_sd
+doncic_stats_very_low <- doncic_stats_mean - 2 * doncic_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(doncic_data$RESULT, p = 0.8, list = FALSE)
+train_data <- doncic_data[train_index, ]
+test_data <- doncic_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(doncic_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(doncic_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(doncic_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(doncic_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(doncic_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Luka Dončić has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+John Wall
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games John Wall Played
+player_name <- "John Wall"
+wall_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(wall_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+wall_data$RESULT <- ifelse(wall_data$RESULT == "Win", 1, 0)
+wall_data$RESULT <- factor(wall_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+wall_data <- wall_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+wall_stats_mean <- wall_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+wall_stats_sd <- wall_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+wall_stats_high <- wall_stats_mean + wall_stats_sd
+wall_stats_very_high <- wall_stats_mean + 2 * wall_stats_sd
+wall_stats_low <- wall_stats_mean - wall_stats_sd
+wall_stats_very_low <- wall_stats_mean - 2 * wall_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(wall_data$RESULT, p = 0.8, list = FALSE)
+train_data <- wall_data[train_index, ]
+test_data <- wall_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(wall_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(wall_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(wall_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(wall_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(wall_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when John Wall has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Mo Bamba
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Mo Bamba Played
+player_name <- "Mo Bamba"
+bamba_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(bamba_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+bamba_data$RESULT <- ifelse(bamba_data$RESULT == "Win", 1, 0)
+bamba_data$RESULT <- factor(bamba_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+bamba_data <- bamba_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+bamba_stats_mean <- bamba_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+bamba_stats_sd <- bamba_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+bamba_stats_high <- bamba_stats_mean + bamba_stats_sd
+bamba_stats_very_high <- bamba_stats_mean + 2 * bamba_stats_sd
+bamba_stats_low <- bamba_stats_mean - bamba_stats_sd
+bamba_stats_very_low <- bamba_stats_mean - 2 * bamba_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(bamba_data$RESULT, p = 0.8, list = FALSE)
+train_data <- bamba_data[train_index, ]
+test_data <- bamba_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(bamba_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(bamba_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(bamba_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(bamba_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(bamba_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Mo Bamba has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Tyler Herro
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Tyler Herro Played
+player_name <- "Tyler Herro"
+herro_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(herro_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+herro_data$RESULT <- ifelse(herro_data$RESULT == "Win", 1, 0)
+herro_data$RESULT <- factor(herro_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+herro_data <- herro_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+herro_stats_mean <- herro_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+herro_stats_sd <- herro_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+herro_stats_high <- herro_stats_mean + herro_stats_sd
+herro_stats_very_high <- herro_stats_mean + 2 * herro_stats_sd
+herro_stats_low <- herro_stats_mean - herro_stats_sd
+herro_stats_very_low <- herro_stats_mean - 2 * herro_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(herro_data$RESULT, p = 0.8, list = FALSE)
+train_data <- herro_data[train_index, ]
+test_data <- herro_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(herro_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(herro_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(herro_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(herro_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(herro_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Tyler Herro has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Joe Ingles
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Joe Ingles Played
+player_name <- "Joe Ingles"
+ingles_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(ingles_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+ingles_data$RESULT <- ifelse(ingles_data$RESULT == "Win", 1, 0)
+ingles_data$RESULT <- factor(ingles_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+ingles_data <- ingles_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+ingles_stats_mean <- ingles_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+ingles_stats_sd <- ingles_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+ingles_stats_high <- ingles_stats_mean + ingles_stats_sd
+ingles_stats_very_high <- ingles_stats_mean + 2 * ingles_stats_sd
+ingles_stats_low <- ingles_stats_mean - ingles_stats_sd
+ingles_stats_very_low <- ingles_stats_mean - 2 * ingles_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(ingles_data$RESULT, p = 0.8, list = FALSE)
+train_data <- ingles_data[train_index, ]
+test_data <- ingles_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(ingles_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(ingles_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(ingles_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(ingles_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(ingles_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Joe Ingles has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+Pat Connaughton
+```{r}
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# Step 1: Filter Data for Games Pat Connaughton Played
+player_name <- "Pat Connaughton"
+connaughton_data <- Data %>%
+  filter(Player == player_name) %>%
+  select(PTS, FG, FGA, `3P`, `3PA`, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL, RESULT)
+
+# Step 2: Rename columns to avoid special characters
+colnames(connaughton_data) <- c("PTS", "FG", "FGA", "ThreeP", "ThreePA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BL", "RESULT")
+
+# Ensure RESULT is a factor with two levels
+connaughton_data$RESULT <- ifelse(connaughton_data$RESULT == "Win", 1, 0)
+connaughton_data$RESULT <- factor(connaughton_data$RESULT, levels = c(0, 1))
+
+# Step 3: Remove rows with missing values
+connaughton_data <- connaughton_data %>% na.omit()
+
+# Step 4: Calculate Mean and Standard Deviation
+connaughton_stats_mean <- connaughton_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), mean))
+
+connaughton_stats_sd <- connaughton_data %>%
+  summarise(across(c(PTS, FG, FGA, ThreeP, ThreePA, FT, FTA, OR, DR, TOT, A, PF, ST, TO, BL), sd))
+
+# Calculate one and two standard deviations above and below the mean
+connaughton_stats_high <- connaughton_stats_mean + connaughton_stats_sd
+connaughton_stats_very_high <- connaughton_stats_mean + 2 * connaughton_stats_sd
+connaughton_stats_low <- connaughton_stats_mean - connaughton_stats_sd
+connaughton_stats_very_low <- connaughton_stats_mean - 2 * connaughton_stats_sd
+
+# Step 5: Train the Classification Model
+# Split data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(connaughton_data$RESULT, p = 0.8, list = FALSE)
+train_data <- connaughton_data[train_index, ]
+test_data <- connaughton_data[-train_index, ]
+
+# Train Random Forest model for classification
+rf_model <- randomForest(RESULT ~ ., data = train_data, ntree = 500, mtry = 3, importance = TRUE)
+
+# Make predictions on test data
+rf_pred <- predict(rf_model, test_data)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(rf_pred, test_data$RESULT)
+print(conf_matrix)
+
+# Get model accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+
+# Step 6: Predict Team's Expected Win Percentage for the Next Game
+
+# 6.1 Using Very High Stats (two standard deviations above average)
+next_game_data_very_high <- as.data.frame(t(connaughton_stats_very_high))
+next_game_data_very_high <- as.data.frame(t(next_game_data_very_high))
+colnames(next_game_data_very_high) <- colnames(train_data)[-16]
+win_prob_very_high <- predict(rf_model, next_game_data_very_high, type = "prob")[,2]
+
+# 6.2 Using High Stats (one standard deviation above average)
+next_game_data_high <- as.data.frame(t(connaughton_stats_high))
+next_game_data_high <- as.data.frame(t(next_game_data_high))
+colnames(next_game_data_high) <- colnames(train_data)[-16]
+win_prob_high <- predict(rf_model, next_game_data_high, type = "prob")[,2]
+
+# 6.3 Using Average Stats
+next_game_data_avg <- as.data.frame(t(connaughton_stats_mean))
+next_game_data_avg <- as.data.frame(t(next_game_data_avg))
+colnames(next_game_data_avg) <- colnames(train_data)[-16]
+win_prob_avg <- predict(rf_model, next_game_data_avg, type = "prob")[,2]
+
+# 6.4 Using Low Stats (one standard deviation below average)
+next_game_data_low <- as.data.frame(t(connaughton_stats_low))
+next_game_data_low <- as.data.frame(t(next_game_data_low))
+colnames(next_game_data_low) <- colnames(train_data)[-16]
+win_prob_low <- predict(rf_model, next_game_data_low, type = "prob")[,2]
+
+# 6.5 Using Very Low Stats (two standard deviations below average)
+next_game_data_very_low <- as.data.frame(t(connaughton_stats_very_low))
+next_game_data_very_low <- as.data.frame(t(next_game_data_very_low))
+colnames(next_game_data_very_low) <- colnames(train_data)[-16]
+win_prob_very_low <- predict(rf_model, next_game_data_very_low, type = "prob")[,2]
+
+# Print combined output
+print(paste("We can predict with", round(accuracy * 100, 2), 
+            "% accuracy that the win probability for the team when Pat Connaughton has an excellent game is:", round(win_prob_very_high * 100, 1), 
+            "%, a good game is:", round(win_prob_high * 100, 1),
+            "%, an average game is:", round(win_prob_avg * 100, 2),
+            "%, a bad game is:", round(win_prob_low * 100, 2),
+            "%, and a terrible game is:", round(win_prob_very_low * 100, 2), "%"))
+
+```
+
+
+`
+
+
+
+
+
+
+
+
+
+
+
